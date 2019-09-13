@@ -7,18 +7,16 @@
 
 ### Work Plan
 
-1. Adapt network from arXiv:1903.11921 to include classical attention gates;
-2. Adapt network from arXiv:1903.11921 to include sononet attention gates;
-3. Compare performance of (1) & (2);
-4. Examine spatial attention differences between FIRST and NVSS datasets;
-5. Implement *distraction* gates to map spatial regions that detract from accurate classification;
-6. Examine spatial distribution of distraction to determine optimal region size for NVSS/FIRST samples.
+1. Build a classical VAE to simulate radio galaxies;
+2. Build a structured VAE to simulate different classes of radio galaxy;
+3. Build VAE that transfers characteristics between different radio surveys;
+4. Produce SKA simulated sky;
+5. Develop VAE into a GAN.
 
 #### Potential publications
 
-* MNRAS (or similar) astronomy paper on FR classification using astronomy
-* NIPS (or similar) paper on dynamic image resizing based on distraction
-* \[Potential extension\] *NIPS (or similar) paper on Bayesian attention gates using weighted compatibility functions*
+* MNRAS (or similar) astronomy paper on simulating radio galaxies using VAEs
+* NIPS (or similar) paper on cross-survey simulation (?)
 
 #### Useful Links
 
