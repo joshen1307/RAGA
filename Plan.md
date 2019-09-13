@@ -2,6 +2,7 @@
 ## Machine Learning for Radio Astronomy.
 
 *Simulating realistic representations of the radio sky at varying resolutions becomes increasingly challenging as radio interferometers increase in both sensitivity and spatial dynamic range. In this project the student will design and implement a deep generative model for different classes of galaxies in radio surveys, with a view to producing SKA-scale survey simulations. The project will work initially with data from the NVSS and FIRST radio surveys and will aim to produce simulated versions of these surveys using a generative model. Depending on progress, this work can be extended to include the development of a generative adversarial network for classification of sources within next generation radio surveys.*
+
 ---
 
 ### Work Plan
