@@ -15,7 +15,7 @@
 
 #### Potential publications
 
-* MNRAS (or similar) astronomy paper on simulating radio galaxies using VAEs
+* [MNRAS (or similar) astronomy paper on simulating radio galaxies using VAEs](https://www.overleaf.com/2626771949wqqvfhhdbysh)
 * NIPS (or similar) paper on cross-survey simulation (?)
 
 #### Useful Links
