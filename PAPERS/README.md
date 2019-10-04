@@ -6,3 +6,7 @@
 * 1412.5771.pdf : An example of where mrphological classification is important for SKA science
 * 1412.5990.pdf : Paper on morphological classification for the SKA & MeerKAT
 * 1706.02262.pdf : recent update to the classical VAE approach
+
+### Interesting Links and Blogs
+
+* https://towardsdatascience.com/intuitively-understanding-variational-autoencoders-1bfe67eb5daf
