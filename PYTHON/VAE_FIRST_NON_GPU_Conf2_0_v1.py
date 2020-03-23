@@ -18,6 +18,9 @@ from MiraBest import MiraBest
 from FRDEEP import FRDEEPF
 
 
+from torchvision.utils import save_image
+
+
 #import matplotlib.pyplot as plt
 
 
@@ -107,21 +110,17 @@ def dataloader_first():
     
     return first_dataloader,first_dataloader_test
 
-
+#
 
 
 #-----------------------------------Encoder Z Network- Encodes the images to the z latent space --------------------------
 class EncoderZ(nn.Module):
     #def __init__(self, z_dim, hidden_dim):
-    def __init__(self, x_dim, y_dim, h_dim1, h_dim2, h_dim3, h_dim4, h_dim5, z_dim):
+    def __init__(self, x_dim, y_dim, h_dim1, z_dim):
         super(EncoderZ, self).__init__()
-        self.fc1 = nn.Linear(x_dim+y_dim, h_dim1) # x_dim=10000 + y_dim=2 to h_dim1=4096 
-        self.fc2 = nn.Linear(h_dim1, h_dim2) #h_dim1=4096 to h_dim2=2048
-        self.fc3 = nn.Linear(h_dim2, h_dim3) #h_dim2=2048 to h_dim3=1024
-        self.fc4 = nn.Linear(h_dim3, h_dim4) #h_dim3=1024 to h_dim4=512
-        self.fc5 = nn.Linear(h_dim4, h_dim5) #h_dim4=512 to h_dim5=256
-        self.fc61 = nn.Linear(h_dim5, z_dim) #h_dim5=256 to z_dim=2
-        self.fc62 = nn.Linear(h_dim5, z_dim) #h_dim5=256 to z_dim=2
+        self.fc1 = nn.Linear(x_dim+y_dim, h_dim1) # x_dim=10000 + y_dim=2 to h_dim1=500
+        self.fc21 = nn.Linear(h_dim1, z_dim) #h_dim5=500 to z_dim=2
+        self.fc22 = nn.Linear(h_dim1, z_dim) #h_dim5=500 to z_dim=2
         self.softplus = nn.Softplus()
 
     def forward(self, x_y_2):
@@ -139,30 +138,19 @@ class EncoderZ(nn.Module):
         # We use fully connected layers
         hidden = self.softplus(self.fc1(x_y_1))
         
-        
-       # hidden = F.leaky_relu(self.fc1(x),slope_param)
-        hidden = F.leaky_relu(self.fc2(hidden),slope_param)
-        hidden = F.leaky_relu(self.fc3(hidden),slope_param)
-        hidden = F.leaky_relu(self.fc4(hidden),slope_param)
-        hidden = F.leaky_relu(self.fc5(hidden),slope_param)
-        
-        z_loc = self.fc61(hidden)
-        z_scale = torch.exp(self.fc62(hidden)) # mu, log_var
+        z_loc = self.fc21(hidden)
+        z_scale = torch.exp(self.fc22(hidden)) # mu, log_var
         
         
         return z_loc, z_scale
 
 #-----------------------------------Encoder Z Network- Encodes the images to the z latent space --------------------------
 class Decoder(nn.Module):
-    def __init__(self, x_dim, y_dim, h_dim1, h_dim2, h_dim3, h_dim4, h_dim5, z_dim):
+    def __init__(self, x_dim, y_dim, h_dim1, z_dim):
         super(Decoder, self).__init__()
         # setup the two linear transformations used
-        self.fc7 = nn.Linear(z_dim+y_dim, h_dim5) #z_dim=2 to h_dim5=256
-        self.fc8 = nn.Linear(h_dim5, h_dim4) #h_dim5=256 to h_dim4=512
-        self.fc9 = nn.Linear(h_dim4, h_dim3) #h_dim4=512 to h_dim3=1024
-        self.fc10 = nn.Linear(h_dim3, h_dim2) #h_dim3=1024 to h_dim2=2048
-        self.fc11 = nn.Linear(h_dim2, h_dim1) #h_dim2=2048 to h_dim1=4096
-        self.fc12 = nn.Linear(h_dim1, x_dim)  #h_dim1=4096 to x_dim=10000
+        self.fc3 = nn.Linear(z_dim+y_dim, h_dim1) #z_dim=2 to h_dim5=500
+        self.fc4 = nn.Linear(h_dim1, x_dim)  #h_dim1=4096 to x_dim=10000
         
         self.softplus = nn.Softplus()
         self.sigmoid = nn.Sigmoid()
@@ -173,19 +161,14 @@ class Decoder(nn.Module):
         
         [z,y]=z_y_2
         
-        z = z.reshape(-1, 16) #@David Change this to reshape if something fucks up
+        z = z.reshape(-1, 2) #@David Change this to reshape if something fucks up
         y = y.reshape(-1, 2)
         z_y_1 = torch.cat((z,y), dim=1)
         z_y_1 = z_y_1.view(z_y_1.size(0), -1)
         
         slope_param=0.0001
-        hidden = F.leaky_relu(self.fc7(z_y_1),slope_param)
-        hidden = F.leaky_relu(self.fc8(hidden),slope_param)
-        hidden = F.leaky_relu(self.fc9(hidden),slope_param)
-        hidden = F.leaky_relu(self.fc10(hidden),slope_param)
-        hidden = F.leaky_relu(self.fc11(hidden),slope_param)
-        
-        loc_img = self.sigmoid(self.fc12(hidden))
+        hidden = F.leaky_relu(self.fc3(z_y_1),slope_param)
+        loc_img = self.sigmoid(self.fc4(hidden))
         return loc_img
 
 
@@ -194,7 +177,7 @@ class Decoder(nn.Module):
 class VAE(nn.Module):
     # by default our latent space is 50-dimensional
     # and we use 400 hidden units
-    def __init__(self, x_dim=10000, y_dim=2, h_dim1=4096, h_dim2=2048, h_dim3=1024, h_dim4=512, h_dim5=256, z_dim=16, use_cuda=True):
+    def __init__(self, x_dim=10000, y_dim=2, h_dim1=500, z_dim=2, use_cuda=True):
         super(VAE, self).__init__()
     
         # create the encoder and decoder networks
@@ -203,9 +186,9 @@ class VAE(nn.Module):
         # e.g. in this network the final output is of size [z_dim,z_dim]
         # to produce loc and scale, and apply different activations [None,Exp] on them
               
-        self.encoder_z = EncoderZ(x_dim, y_dim, h_dim1, h_dim2, h_dim3, h_dim4, h_dim5, z_dim)
+        self.encoder_z = EncoderZ(x_dim, y_dim, h_dim1, z_dim)
         
-        self.decoder = Decoder(x_dim, y_dim, h_dim1, h_dim2, h_dim3, h_dim4, h_dim5, z_dim)
+        self.decoder = Decoder(x_dim, y_dim, h_dim1, z_dim)
 
         if use_cuda:
             # calling cuda() here will put all the parameters of
@@ -320,6 +303,38 @@ def evaluate(svi, test_loader, use_cuda=True):
     return total_epoch_loss_test
 
 
+def image_sample_plotter(epoch):
+    with torch.no_grad():
+        count = 0
+        z_fr1 = z_fr2 = torch.randn(100, 2)
+        labels_y1 = torch.tensor(np.zeros((100,2)))
+        labels_y2 = torch.tensor(np.zeros((100,2)))
+        for i in range (0,10):
+            for j in range (0,10):
+                for k in range (0,2):
+                    z_fr1[count,k] = z_fr2[count,k] = np.random.uniform(-1,1)
+                    labels_y1[count,0] = 1
+                    labels_y2[count,1] = 1
+                count = count +1 
+        
+        sample1 = vae.decoder([z_fr1.cuda(),labels_y1.cuda().float()])
+    
+        save_image(sample1.view(100, 1, 100, 100), 'fr1_sample_2x3_z_space_' +str(epoch)+'.png',nrow=10)
+    
+        sample2 = vae.decoder([z_fr2.cuda(),labels_y2.cuda().float()])
+
+        save_image(sample2.view(100, 1, 100, 100), 'fr2_sample_2x3_z_space_' +str(epoch)+'.png',nrow=10) 
+
+
+def save_checkpoint(epoch):
+    print("saving model to ...")
+    torch.save(vae.state_dict(), '/raid/scratch/davidb/1_DEVELOPMENT/VAE_FIRST/models/file_conf00x3_semi_supervised_vae_FRDEEP_epoch_'+str(epoch))
+    print("saving optimizer states...")
+    optimizer.save('/raid/scratch/davidb/1_DEVELOPMENT/VAE_FIRST/models/file_conf00x3_semi_supervised_vae_FRDEEP_epoch_'+str(epoch)+'_opt')
+    print("done saving model and optimizer checkpoints to disk.")
+
+
+
 
 # Run options
 LEARNING_RATE = 1.0e-3
@@ -351,7 +366,7 @@ pyro.clear_param_store()
 vae = VAE(use_cuda=USE_CUDA)
 
 # setup the optimizer
-adagrad_params = {"lr": 0.00003}
+adagrad_params = {"lr": 0.003}
 optimizer = Adagrad(adagrad_params)
 
 
@@ -367,11 +382,11 @@ for epoch in range(NUM_EPOCHS):
     train_elbo.append(-total_epoch_loss_train)
     
     
-    if epoch%50 == 0:
-    # --------------------------Do testing for each epoch here--------------------------------
-    # initialize loss accumulator
+    if epoch%100 == 0:
+        # -------------------------------------Do testing for each epoch here-----------------------------------------
+        # initialize loss accumulator
         test_loss = 0.
-    # compute the loss over the entire test set
+        # compute the loss over the entire test set
         for x_test,y_test in test_loader:
 
             x_test = x_test.cuda()
@@ -382,23 +397,31 @@ for epoch in range(NUM_EPOCHS):
             labels_y_test=np.eye(2)[y_test_2]
             labels_y_test = torch.from_numpy(labels_y_test)
         
-            test_loss += svi.evaluate_loss(x_test.reshape(-1,10000),labels_y_test.cuda().float()) #Data entry point <---------------------------------Data Entry Point
+            test_loss += svi.evaluate_loss(x_test.reshape(-1,10000),labels_y_test.cuda().float()) 
+            
             
         normalizer_test = len(test_loader.dataset)
         total_epoch_loss_test = test_loss / normalizer_test
+        
+      
+        
+        image_sample_plotter(epoch)
         
         results_array_temp_test[0,:][0] = epoch
         results_array_temp_test[0,:][1] = total_epoch_loss_test
         results_array_test=np.vstack((results_array_test,results_array_temp_test))
         print("    [epoch %03d]  average testing loss: %.4f" % (epoch, total_epoch_loss_test))
-
         
+    # ----------------------
+    if epoch%500 == 0:
+        save_checkpoint(epoch)     
     
-  # ------------------------Plotting Mechanism-----------------------------------------  
+  # --------------------------------------------Plotting Mechanism-----------------------------------------------  
     results_array_temp[0,:][0] = epoch
     results_array_temp[0,:][1] = total_epoch_loss_train
     results_array=np.vstack((results_array,results_array_temp))
     
     print("[epoch %03d]  average training loss: %.4f" % (epoch, total_epoch_loss_train))
+    
 
 
