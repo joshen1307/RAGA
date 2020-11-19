@@ -1,6 +1,6 @@
 ### Structured Variational Inference for Simulating Populations of Radio Galaxies - RAGA-1 (Radio Astronomy Generative Algorithm - version 1)
 
-The Python examples run in python3. To run a jupyter notebook:
+The Radio Astronomy Generative Algorithm - version 1 is the first of a series of generative algorithms engineered for simulating radio sources in view of the simulation of future radio surveys like the SKA. 
 
 ```bash
 jupyter notebook VAE_example.ipynb
