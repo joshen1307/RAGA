@@ -12,9 +12,9 @@ import torchvision.datasets as dset
 from torchvision.utils import save_image
 
 
-from utils.FRDEEP import FRDEEPF
+from raga.utils.FRDEEP import FRDEEPF
 
-from utils.MiraBest_full import MiraBest_full
+from raga.utils.MiraBest_full import MiraBest_full
 
 from PIL import Image
 

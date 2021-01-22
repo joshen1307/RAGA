@@ -18,9 +18,9 @@ from torchvision.utils import save_image
 from torch.utils.data.sampler import SubsetRandomSampler
 
 
-from FRDEEP import FRDEEPF
+from raga.utils.FRDEEP import FRDEEPF
 
-from models import HMT
+from raga.utils.models import HMT
 
 
 
