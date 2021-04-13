@@ -8,7 +8,6 @@
 #vi. model saving frequency
 #vii. log file directory
 
-
 import os
 import pandas as pd
 import numpy as np
@@ -36,18 +35,13 @@ from numpy import log
 from numpy import mean
 from numpy import exp
 
-
-
 import argparse
 import sys
-
 
 from datetime import date
 
 today = date.today()
 print("Today's date:", today)
-
-
 
 def getOptions(args=sys.argv[1:]):
     parser = argparse.ArgumentParser(description="Parses command.")
@@ -57,13 +51,13 @@ def getOptions(args=sys.argv[1:]):
     options = parser.parse_args(args)
     return options
 
+
 options = getOptions(sys.argv[1:])
 
 
 LEARNING_RATE=float(options.learning_rate)
 model_directory=options.model_directory
 d = int(options.latent_dimensions)
-
 string_lr = str(LEARNING_RATE).replace(".", "-")
 print(string_lr)
 
@@ -209,6 +203,7 @@ class VAE(nn.Module):
 # ------------------------------------------------Initialisation of all the parameters-----------------------------------
 # Fully Connected Layer network architecture parameterization
 #d = 4 #Define the number of dimensions in the Bottleneck of the Variational Auto Encoder
+
 
 #Learning Rate Configuration
 print(LEARNING_RATE)

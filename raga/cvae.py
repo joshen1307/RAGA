@@ -59,7 +59,7 @@ from raga.utils.data_downloader import dataloader_first_FRDEEP
 from raga.utils.data_downloader import dataloader_first
 from raga.utils.classification_function import classfication_procedure
 
-from raga.utils.network_configurations import neural_net_conf_0_2_dropout as network
+from raga.utils.network_configurations import neural_net_conf_0_1_dropout as network1
 
 from datetime import date
 
@@ -92,79 +92,90 @@ def calculate_inception_score(p_yx, eps=1E-16):
 
 
 #---------------------------------------------------VAE CLASS DECLARATION------------------------------------------------------------
-class VAE(nn.Module):
+class CVAE(nn.Module):
     # by default our latent space is 50-dimensional
     # @David We have changed the latent space to 2-dimensional
     # and we use 400 hidden units
-    def __init__(self, x_dim,h_dim1, h_dim2, h_dim3, h_dim4, h_dim5, z_dim, use_cuda=True): # z_dim has been changed to 2
-        super(VAE, self).__init__()
+    def __init__(self, x_dim,h_dim1, h_dim2, h_dim3, h_dim4, h_dim5, y_dim, z_dim, use_cuda=True): # z_dim has been changed to 2
+        super(CVAE, self).__init__()
         # create the encoder and decoder networks
         #For the first images add addition hidden layers
-        self.encoder = network.Encoder(x_dim, h_dim1, h_dim2, h_dim3, h_dim4, h_dim5, z_dim) #To check the layering structure
-        self.decoder = network.Decoder(x_dim, h_dim1, h_dim2, h_dim3, h_dim4, h_dim5, z_dim) #To check the layering structure
+        
+        self.encoder_z = network1.EncoderZ(x_dim, h_dim1, h_dim2, h_dim3, h_dim4, h_dim5, y_dim, z_dim)
+        
+        self.decoder = network1.Decoder(x_dim, h_dim1, h_dim2, h_dim3, h_dim4, h_dim5, y_dim, z_dim)
 
         if use_cuda:
             # calling cuda() here will put all the parameters of
             # the encoder and decoder networks into gpu memory
             self.cuda()
+            
+            
         self.use_cuda = use_cuda
         self.z_dim = z_dim
-
-    # Do not touch this part for the time being this will be modified when doing the Semi-Supervised VAE     
+                
     # define the model p(x|z)p(z)
-    #-------------------------------------------------------------------------------------------------------------------
-    #-----------------------------------------------Model Chunck--------------------------------------------------------
-    #-------------------------------------------------------------------------------------------------------------------
-    def model(self, x):
-        # register PyTorch module `decoder` with Pyro
-        pyro.module("decoder", self.decoder)
-        with pyro.plate("data", x.shape[0]):
-            # setup hyperparameters for prior p(z)
-            z_loc = x.new_zeros(torch.Size((x.shape[0], self.z_dim)))
-            z_scale = x.new_ones(torch.Size((x.shape[0], self.z_dim)))
-            # sample from prior (value will be sampled by guide when computing the ELBO)
-            z = pyro.sample("latent", dist.Normal(z_loc, z_scale).to_event(1))
-            # decode the latent code z
-            loc_img = self.decoder.forward(z)
-            # score against actual images
-            pyro.sample("obs", dist.Bernoulli(loc_img).to_event(1), obs=x.reshape(-1, 10000))
-    #------------------------------------------------------------------------------------------------------------------
-    
-    #------------------------------------------------------------------------------------------------------------------
-    #--------------------------------------------------Guide Chunk-----------------------------------------------------
-    #------------------------------------------------------------------------------------------------------------------
-    # define the guide (i.e. variational distribution) q(z|x)
-    def guide(self, x):
-        # register PyTorch module `encoder` with Pyro
-        pyro.module("encoder", self.encoder)
-        with pyro.plate("data", x.shape[0]):
-            # use the encoder to get the parameters used to define q(z|x)
-            z_loc, z_scale = self.encoder.forward(x)
-            # sample the latent code z
-            pyro.sample("latent", dist.Normal(z_loc, z_scale).to_event(1))
-    #------------------------------------------------------------------------------------------------------------------
+    def model(self, xs, ys):
+        # register this pytorch module and all of its sub-modules with pyro
+        pyro.module("ss_vae", self)
+        batch_size = xs.size(0)
+        
 
+        output_size = 2
+        
+        
+        
+        # inform Pyro that the variables in the batch of xs, ys are conditionally independent
+        with pyro.plate("data"):
+          
+            # sample the handwriting style from the constant prior distribution
+            prior_loc = xs.new_zeros([batch_size, self.z_dim])
+            prior_scale = xs.new_ones([batch_size, self.z_dim])
+            zs = pyro.sample("z", dist.Normal(prior_loc, prior_scale).to_event(1))
+
+            # if the label y (which digit to write) is supervised, sample from the
+            # constant prior, otherwise, observe the value (i.e. score it against the constant prior)
+            alpha_prior = xs.new_ones([batch_size, output_size]) / (1.0 * output_size)
+            ys = pyro.sample("y", dist.OneHotCategorical(alpha_prior), obs=ys)
+            
+            # finally, score the image (x) using the handwriting style (z) and
+            # the class label y (which digit to write) against the
+            # parametrized distribution p(x|y,z) = bernoulli(decoder(y,z))
+            # where `decoder` is a neural network
+            loc = self.decoder.forward([zs, ys])
+            pyro.sample("x", dist.Bernoulli(loc).to_event(1), obs=xs)
+            
+    def guide(self, xs, ys):
+        with pyro.plate("data"):
+           # if the class label (the digit) is not supervised, sample
+           # (and score) the digit with the variational distribution
+           # q(y|x) = categorical(alpha(x))
+           
+            #-------------------REMOVED THIS PART FOR THE CLASSIFIER ASSUME ALL DATA ARE LABELLED---------
+
+           # sample (and score) the latent handwriting-style with the variational
+           # distribution q(z|x,y) = normal(loc(x,y),scale(x,y))
+            loc, scale = self.encoder_z.forward([xs, ys])
+            pyro.sample("z", dist.Normal(loc, scale).to_event(1))
 
     # define a helper function for reconstructing images
-    def reconstruct_img(self, x):
+    def reconstruct_img(self, xs, ys):
         # encode image x
-        z_loc, z_scale = self.encoder(x)
+        z_loc, z_scale = self.encoder_z.forward([xs,ys])
         # sample in latent space
         z = dist.Normal(z_loc, z_scale).sample()
         # decode the image (note we don't sample in image space)
-        loc_img = self.decoder(z)
+        loc_img = self.decoder.forward([zs,ys])
+        
         return loc_img
 
 
-# Note that the mini batch logic is handled by the data loader, we should duplicate the same logic of the data loader with the FIRST Database. The core of the training loop is svi.step(x). This is the data entry point. It should be noted that we have to change the looping structure to that of the mini batch structure that is used for the FIRST database.
-
-# To do evaluate part afterwards
 
 def evaluate(svi, test_loader, use_cuda=True):
     # initialize loss accumulator
     test_loss = 0.
     # compute the loss over the entire test set
-    for x in test_loader:
+    for x,y in test_loader:
         # if on GPU put mini-batch into CUDA memory
         if use_cuda:
             x = x.cuda()
@@ -173,6 +184,29 @@ def evaluate(svi, test_loader, use_cuda=True):
     normalizer_test = len(test_loader.dataset)
     total_epoch_loss_test = test_loss / normalizer_test
     return total_epoch_loss_test
+
+
+def train(svi, train_loader, use_cuda=True):
+    # initialize loss accumulator
+    epoch_loss = 0.
+    # do a training epoch over each mini-batch x returned
+    # by the data loader
+    for x, y in train_loader:
+       # if on GPU put mini-batch into CUDA memory
+       if use_cuda:
+            x = x.cuda()
+       # do ELBO gradient and accumulate loss
+       labels_y = torch.tensor(np.zeros((y.shape[0],2)))
+       y_2=torch.Tensor.cpu(y.reshape(1,y.size()[0])[0]).numpy().astype(int)  
+       labels_y=np.eye(2)[y_2]
+       labels_y = torch.from_numpy(labels_y)   
+         
+       epoch_loss += svi.step(x.reshape(-1,10000),labels_y.cuda().float())
+
+        # return epoch loss
+    normalizer_train = len(train_loader.dataset)
+    total_epoch_loss_train = epoch_loss / normalizer_train
+    return total_epoch_loss_train
 
 
 
@@ -184,20 +218,13 @@ def evaluate(svi, test_loader, use_cuda=True):
 # model_unsup_10 >>>>>> model for FRDEEP with 10 latent space. Conf = 0:2 
 # model_unsup_MIRABEST_2 >>>>> model for MIRABEST with 2 latent space Cond = 0:2\
 
-
-#--------------------------------------------------Dataloader initialisation---------------------------------------------  
-
-
-
+#--------------------------------------------------------------------------------------------------------------------------------
+#--------------------------------------------------Learning Rate Search Code Section---------------------------------------------  
+#--------------------------------------------------------------------------------------------------------------------------------
 
 
-
-
-
-def lrsearch(latent_dimensions,training_epoch,log_dir): 
+def lrsearch(latent_dimensions,training_epoch,log_dir):
     d = latent_dimensions
-    training_epochs = training_epoch
-    
     train_loader,test_loader = dataloader_first_FRDEEP()
 
     learning_rates = []
@@ -205,13 +232,17 @@ def lrsearch(latent_dimensions,training_epoch,log_dir):
     LEARNING_RATE = 0.0005
 
 
-     #--------------------------------------------Defining the dataframe to save the logs--------------------------------------
+    #--------------------------------------------Defining the dataframe to save the logs--------------------------------------
     data = np.zeros((2,100)).T
 
     columns = ['learning_rate','train_loss']
     df = pd.DataFrame(data, columns=columns)
     count = 0
+
+
+
     for k in range(0,100):
+    
         pyro.clear_param_store() #VVIP clears out parameters eash time looping sequence is engaged
     
         # ------------------------------------------------Initialisation of all the parameters-----------------------------------
@@ -228,11 +259,11 @@ def lrsearch(latent_dimensions,training_epoch,log_dir):
         NUM_EPOCHS = training_epoch #Remove the hardcoded [8000]
         TEST_FREQUENCY = 5
 
-        #-----------------------------------------------------VAE initialisation--------------------------------------------------
+    #-----------------------------------------------------VAE initialisation--------------------------------------------------
 
 
 
-        vae = VAE(x_dim=10000,h_dim1=4096,h_dim2=2048,h_dim3=1024,h_dim4=512,h_dim5=256,z_dim=d,use_cuda=USE_CUDA)
+        cvae = CVAE(x_dim=10000,h_dim1=4096,h_dim2=2048,h_dim3=1024,h_dim4=512,h_dim5=256,y_dim=2,z_dim=d,use_cuda=USE_CUDA)
 
 
 
@@ -245,8 +276,8 @@ def lrsearch(latent_dimensions,training_epoch,log_dir):
         # optimizer = Adam(adam_args)   # The Adam optimizer is used as optimizer
         optimizer = Adagrad(adam_args)
         # setup the inference algorithm
-        svi = SVI(vae.model, vae.guide, optimizer, loss=Trace_ELBO())
-
+        svi = SVI(cvae.model, cvae.guide, optimizer, loss=Trace_ELBO())
+    
 
 
         train_elbo = []
@@ -255,64 +286,70 @@ def lrsearch(latent_dimensions,training_epoch,log_dir):
 
 
         for epoch in range(NUM_EPOCHS):
-             # total_epoch_loss_train = train(svi, epoch, train_loader)
-             # ------------ To include Training Loop just for test -------------------
-             epoch_loss = 0.
-   
-             for x in train_loader: # Note that _ is the labels only and x are the images.
-             # if on GPU put mini-batch into CUDA memory
+            # total_epoch_loss_train = train(svi, epoch, train_loader)
+            # ------------ To include Training Loop just for test -------------------
+            total_epoch_loss_train = train(svi, train_loader, use_cuda=USE_CUDA)
         
-                 x = x[0].cuda()
-                 # do ELBO gradient and accumulate loss
-                 epoch_loss += svi.step(x)
-        
-             # return epoch loss
-             normalizer_train = len(train_loader.dataset)
-    
-             total_epoch_loss_train = epoch_loss / normalizer_train
       
-             train_elbo.append(-total_epoch_loss_train)
+            train_elbo.append(-total_epoch_loss_train)
     
     
-             # --------------------------Do testing for each epoch here--------------------------------
-             # initialize loss accumulator
-             test_loss = 0.
-             # compute the loss over the entire test set
-             for x_test in test_loader:
-                 # if on GPU put mini-batch into CUDA memory
-
-                 x_test = x_test[0].cuda()
-                 # compute ELBO estimate and accumulate loss
-                 test_loss += svi.evaluate_loss(x_test) #Data entry point <---------------------------------Data Entry Point
-             normalizer_test = len(test_loader.dataset)
-             total_epoch_loss_test = test_loss / normalizer_test
-    
-    
-             print("[epoch %03d]  average training loss: %.4f testing loss: %.4f" % (epoch, total_epoch_loss_train,total_epoch_loss_test))
+            # --------------------------Do testing for each epoch here--------------------------------
+            test_loss = 0.
+            # compute the loss over the entire test set
+            for x_test,y_test in test_loader:
+                x_test = x_test.cuda()
+                y_test = y_test.cuda()
+                # compute ELBO estimate and accumulate loss
+                labels_y_test = torch.tensor(np.zeros((y_test.shape[0],2)))
+                y_test_2=torch.Tensor.cpu(y_test.reshape(1,y_test.size()[0])[0]).numpy().astype(int)  
+                labels_y_test=np.eye(2)[y_test_2]
+                labels_y_test = torch.from_numpy(labels_y_test)
         
-        count = count + 1
-
+                test_loss += svi.evaluate_loss(x_test.reshape(-1,10000),labels_y_test.cuda().float()) 
+        
+        
+            normalizer_test = len(test_loader.dataset)
+            total_epoch_loss_test = test_loss / normalizer_test
+    
+            print("[epoch %03d]  average training loss: %.4f testing loss: %.4f" % (epoch, total_epoch_loss_train,total_epoch_loss_test))
         df['learning_rate'][count]=LEARNING_RATE
         df['train_loss'][count]=total_epoch_loss_train
+        count = count + 1
+
         print('+++++++++++++++++++++++++++++++++++++Incrementing Learning Rate++++++++++++++++++++++++++++++++++++')
         learning_rates.append(LEARNING_RATE)
         train_losses.append(total_epoch_loss_train)
     
-        df.to_csv(log_dir+'/data_lr_experiment_exp0_d'+str(d)+'.csv')
+        df.to_csv('data_lr_experiment_sup_d'+str(d)+'.csv')
     
         LEARNING_RATE = LEARNING_RATE + 0.00001
 
+#---------------------------------------------------------------------------------------------------------
+#-------------------------------------------Train Function------------------------------------------------
+#---------------------------------------------------------------------------------------------------------
 
-
-def vaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
+def cvaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
 
 
     string_lr = str(LEARNING_RATE).replace(".", "-")
-    print(string_lr)
+    print(LEARNING_RATE)
+    #Use CUDA configuration
+    USE_CUDA = True
 
+    # Run only for a single iteration for testing 
+
+    # Define 
+    TEST_FREQUENCY = 5
+
+    #--------------------------------------------Defining the dataframe to save the logs--------------------------------------
+    data = np.zeros((7,8000)).T
+
+    columns = ['Epoch','Train_Loss', 'Test_Loss', 'Sigma_clipped','Inception_score','number_FR1','number_FR2']
+    df = pd.DataFrame(data, columns=columns)
     #---------------------------------Create directory to save models------------------------------------
 
-    path = path+"/"+"USUP-MODELS-"+"d"+str(d)+"-"+string_lr+"-"+str(today)
+    path = path+"/"+"SUP-MODELS-"+"d"+str(d)+"-"+string_lr+"-"+str(today)
     print(path)
     try:
         os.mkdir(path)
@@ -333,19 +370,16 @@ def vaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
     #--------------------------------------------------------Main VAE Section-----------------------------------------------------
 
     # setup the optimizer
-    adam_args = {"lr": LEARNING_RATE}
+    adagrad_args = {"lr": LEARNING_RATE}
     # optimizer = Adam(adam_args)   # The Adam optimizer is used as optimizer
-    optimizer = Adagrad(adam_args)
+    optimizer = Adagrad(adagrad_args)
     # setup the inference algorithm
-    TEST_FREQUENCY = 5
 
 #--------------------------------------------Defining the dataframe to save the logs--------------------------------------
-    data = np.zeros((5,8000)).T
+    
+    cvae = CVAE(x_dim=10000,h_dim1=4096,h_dim2=2048,h_dim3=1024,h_dim4=512,h_dim5=256,y_dim=2,z_dim=d,use_cuda=USE_CUDA)
 
-    columns = ['Epoch','Train_Loss', 'Test_Loss', 'Sigma_clipped','Inception_score']
-    df = pd.DataFrame(data, columns=columns)
-    vae = VAE(x_dim=10000,h_dim1=4096,h_dim2=2048,h_dim3=1024,h_dim4=512,h_dim5=256,z_dim=d,use_cuda=True)
-    svi = SVI(vae.model, vae.guide, optimizer, loss=Trace_ELBO())
+    svi = SVI(cvae.model, cvae.guide, optimizer, loss=Trace_ELBO())
     
     def single_image_sampler(z):
          single_sample_image = vae.decoder(z)
@@ -363,9 +397,9 @@ def vaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
 
     def save_checkpoint(epoch,path):
          print("saving model to ...")
-         torch.save(vae.state_dict(), path+'/'+'model_unsup_main_'+str(epoch)+'.mod')
+         torch.save(cvae.state_dict(), path+'/'+'model_sup_main_'+str(epoch)+'.mod')
          print("saving optimizer states...")
-         optimizer.save(path+'/model_unsup_main_'+str(epoch)+'_opt.opt')
+         optimizer.save(path+'/model_sup_main_'+str(epoch)+'_opt.opt')
          print("done saving model and optimizer checkpoints to disk.")
     
 
@@ -375,18 +409,55 @@ def vaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
     #svi.step(annealing_factor=0.2, latents_to_anneal=["my_latent"])
 
     def inception_scoring(d,limits):
-        z_fr = torch.randn(100, d)
-
+    
+        #Create the latent sample z to be used to sample the radio sources from the decoder architecture
+        z_fr1 = torch.randn(100, d)
+        z_fr2 = torch.randn(100, d)
+    
+    
         for i in range (0,100):
             for j in range (0,d):
-                z_fr[i,j] = np.random.uniform(limits[0,j],limits[1,j])
+                z_fr1[i,j] = np.random.uniform(limits[0,j],limits[1,j])
+                z_fr2[i,j] = np.random.uniform(limits[0,j],limits[1,j])
+            
+        #Defines the labels 
     
-        sample1 = vae.decoder(z_fr.cuda()).cpu().detach().numpy().reshape(100,1,100,100)
+        labels_y1 = torch.tensor(np.zeros((100,2)))
+        labels_y2 = torch.tensor(np.zeros((100,2)))
+        
+        labels_y1[:,1] = 0
+        labels_y2[:,1] = 0
+
+        labels_y1[:,0] = 0
+        labels_y2[:,0] = 0
+
+        labels_y1[:,1] = 1  #To check this in more detail so as not to create confucion
+        labels_y2[:,0] = 1
     
-        fullsize_image = np.zeros((100,1,150,150))
+        #Sample the two sets of sources
+    
+        sample_fr1 = cvae.decoder([z_fr1.cuda(),labels_y1.cuda().float()])
+        img1=sample_fr1.reshape(100,100,100).cpu().detach().numpy()
+ 
+
+        sample_fr2 = cvae.decoder([z_fr2.cuda(),labels_y2.cuda().float()])
+    
+        img2=sample_fr2.reshape(100,100,100).cpu().detach().numpy()
+
+    
+        
+        array_fr1 = np.zeros(100)
+        array_fr2 = np.zeros(100)
+
+        
+        fullsize_image = np.zeros((200,1,150,150))
 
         for i in range (0,100):
-             fullsize_image[i,0,25:125,25:125]=sample1[i,0,:,:]
+             fullsize_image[i,0,25:125,25:125]=img1[i,:,:]
+        
+        for i in range (100,200):
+             fullsize_image[i,0,25:125,25:125]=img2[i-100,:,:]
+        
     
         array_generated= torch.from_numpy(fullsize_image).float().to("cpu")
 
@@ -394,71 +465,92 @@ def vaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
         m = nn.Softmax(dim=1)
         values=m(valid_pred).cpu().detach().numpy()
         score = calculate_inception_score(values)
-
-        return score
+    
+        array_generated_fr1 = torch.from_numpy(fullsize_image[0:100,:,:,:]).float().to("cpu")
+        fr1_pred = inception_classifier(array_generated_fr1.cuda())
+        values=m(fr1_pred).cpu().detach().numpy()
+        print(values.shape)
+        num_fr1=len(values[values[:,0]>0.5])
+    
+        array_generated_fr2 = torch.from_numpy(fullsize_image[100:200,:,:,:]).float().to("cpu")
+        fr2_pred = inception_classifier(array_generated_fr2.cuda())
+        values=m(fr2_pred).cpu().detach().numpy()
+        num_fr2=len(values[values[:,1]>0.5])
+    
+        fullsize_image_reshaped_fr1 = img1.reshape(100*100*100,1)
+        fullsize_image_reshaped_fr2 = img2.reshape(100*100*100,1)
+    
+        fr1_clipped = len(fullsize_image_reshaped_fr1[fullsize_image_reshaped_fr1<0.00001])
+        fr2_clipped = len(fullsize_image_reshaped_fr2[fullsize_image_reshaped_fr2<0.00001])
+   
+    
+        return score,num_fr1,num_fr2,(fr1_clipped+fr2_clipped)/(2*100000)
 
     pyro.clear_param_store() #VVIP clears out parameters eash time looping sequence is engaged
 
     train_elbo = []
     test_elbo = []
     # training loop
-    
+
 
     for epoch in range(NUM_EPOCHS):
-        # total_epoch_loss_train = train(svi, epoch, train_loader)
-        # ------------ To include Training Loop just for test -------------------
-        epoch_loss = 0.
-   
-        for x in train_loader: # Note that _ is the labels only and x are the images.
-        # if on GPU put mini-batch into CUDA memory
-        
-            x = x[0].cuda()
-            # do ELBO gradient and accumulate loss
-            epoch_loss += svi.step(x)
-        
-        # return epoch loss
-        normalizer_train = len(train_loader.dataset)
+   # total_epoch_loss_train = train(svi, epoch, train_loader)
+    # ------------ To include Training Loop just for test -------------------
     
-        total_epoch_loss_train = epoch_loss / normalizer_train
-      
+        total_epoch_loss_train = train(svi, train_loader, use_cuda=USE_CUDA)
+
+        
+    
+    
         train_elbo.append(-total_epoch_loss_train)
     
     
-        # --------------------------Do testing for each epoch here--------------------------------
-        # initialize loss accumulator
+       # -----------------------------------------Test Loop------------------------------------------
         test_loss = 0.
-        # compute the loss over the entire test set
-        for x_test in test_loader:
-            # if on GPU put mini-batch into CUDA memory
+         # compute the loss over the entire test set
+        for x_test,y_test in test_loader:
 
-            x_test = x_test[0].cuda()
-            # compute ELBO estimate and accumulate loss
-            test_loss += svi.evaluate_loss(x_test) #Data entry point <---------------------------------Data Entry Point
+                x_test = x_test.cuda()
+                y_test = y_test.cuda()
+                # compute ELBO estimate and accumulate loss
+                labels_y_test = torch.tensor(np.zeros((y_test.shape[0],2)))
+                y_test_2=torch.Tensor.cpu(y_test.reshape(1,y_test.size()[0])[0]).numpy().astype(int)  
+                labels_y_test=np.eye(2)[y_test_2]
+                labels_y_test = torch.from_numpy(labels_y_test)
+        
+                test_loss += svi.evaluate_loss(x_test.reshape(-1,10000),labels_y_test.cuda().float()) 
+        
+        
         normalizer_test = len(test_loader.dataset)
         total_epoch_loss_test = test_loss / normalizer_test
         incept_score = 0 
-    
-    
+     
+       
         # This loop fixes the limits for the random number generator
         #On first run the 
         limits = np.zeros((2,d))
         for i in range (0,d):
-             limits[0,i]= -4
-             limits[1,i]= 4
+            limits[0,i]= -4
+            limits[1,i]= 4
     
     
-        incept_score = inception_scoring(d,limits) #Calls the inception score and calculates it.
+        incept_score,num_fr1,num_fr2,sigma_clipped = inception_scoring(d,limits) #Calls the inception score and calculates it.
+       
     
+    #    print("[epoch %03d]  average training loss: %.4f testing loss: %.4f inception score: %.4f" % (epoch, total_epoch_loss_train,total_epoch_loss_test,inception_score))
+
+        print("[epoch %03d]  average training loss: %.4f testing loss: %.4f inception score: %.4f Number of FRI: %.4f Number of FRII: %.4f Sigma Clipped: %.4f" % (epoch, total_epoch_loss_train,total_epoch_loss_test,incept_score,num_fr1,num_fr2,sigma_clipped))
     
-    
-        print("[epoch %03d]  average training loss: %.4f testing loss: %.4f inception score: %.4f" % (epoch, total_epoch_loss_train,total_epoch_loss_test,incept_score))
         df['Epoch'][epoch]=epoch
         df['Train_Loss'][epoch]=total_epoch_loss_train
         df['Test_Loss'][epoch]=total_epoch_loss_test
         df['Inception_score'][epoch]=incept_score
+        df['Sigma_clipped'][epoch]=sigma_clipped
+        df['number_FR1'][epoch]=num_fr1
+        df['number_FR2'][epoch]=num_fr2
     
         if epoch%10 == 0:
-            df.to_csv(log_path+'/data_unsupervised_d'+str(d)+'.csv')
+            df.to_csv('data_supervised_d'+str(d)+'.csv')
     
         if epoch%50 == 0:
             save_checkpoint(epoch,path)
@@ -468,34 +560,45 @@ def inference_function(latent_dimension,weights_file,optimizer_file):
     USE_CUDA = True
     LEARNING_RATE =0.00001
     # setup the VAE
-    vae = VAE(x_dim=10000,h_dim1=4096,h_dim2=2048,h_dim3=1024,h_dim4=512,h_dim5=256,z_dim=latent_dimension,use_cuda=USE_CUDA)
+    cvae = CVAE(x_dim=10000,h_dim1=4096,h_dim2=2048,h_dim3=1024,h_dim4=512,h_dim5=256,y_dim=2,z_dim=latent_dimension,use_cuda=USE_CUDA)
 
     # setup the optimizer
     adam_args = {"lr": LEARNING_RATE}
     # optimizer = Adam(adam_args)   # The Adam optimizer is used as optimizer
     optimizer = Adagrad(adam_args)
     # setup the inference algorithm
-    svi = SVI(vae.model, vae.guide, optimizer, loss=Trace_ELBO())
+    svi = SVI(cvae.model, cvae.guide, optimizer, loss=Trace_ELBO())
 
     print("loading model from ...")
-    vae.load_state_dict(torch.load(weights_file))
+    cvae.load_state_dict(torch.load(weights_file))
     print("loading optimizer states from ...")
     optimizer.load(optimizer_file)
     print("done loading model and optimizer states.")
 
-    return vae
+    return cvae
 
-
-def inference_function_main(latent_dimension,weights_file,optimizer_file,number_of_sources,fits_directory):
-    VAE_MOD=inference_function(latent_dimension,weights_file,optimizer_file)
+def inference_function_main(latent_dimension,weights_file,optimizer_file,number_of_sources,fits_directory,source_class):
+    CVAE_MOD=inference_function(latent_dimension,weights_file,optimizer_file)
     
-    z_fr = torch.randn(number_of_sources, latent_dimension)
+    z_fr = torch.randn(number_of_sources,latent_dimension)
     for i in range (0,number_of_sources):
         for j in range (0,latent_dimension):
             z_fr[i,j] = np.random.uniform(-4,4)
     
-    sample1 = VAE_MOD.decoder(z_fr.cuda()).cpu().detach().numpy().reshape(number_of_sources,1,100,100)
+    labels = torch.tensor(np.zeros((number_of_sources,2)))
+     
+        
+    labels[:,1] = 0
 
+    labels[:,0] = 0
+       
+
+    labels[:,source_class] = 1  #To check this in more detail so as not to create confucion
+
+    
+    #Sample the two sets of sources
+    
+    sample1 = CVAE_MOD.decoder([z_fr.cuda(),labels.cuda().float()]).cpu().detach().numpy().reshape(number_of_sources,1,100,100)
 
 
 
@@ -524,23 +627,20 @@ def inference_function_main(latent_dimension,weights_file,optimizer_file,number_
         
         number_blobs = len(x_list)
         regr = linear_model.LinearRegression()
-        
-        image_array = np.copy(data_image)
+
         # Train the model using the training sets
-        if number_blobs != 0:
-            regr.fit(np.array(x_list).reshape(-1, 1), np.array(y_list).reshape(-1, 1))
+        regr.fit(np.array(x_list).reshape(-1, 1), np.array(y_list).reshape(-1, 1))
 
-            # Make predictions using the testing set
-            y_pred = regr.predict(np.array(x_list).reshape(-1, 1))
+        # Make predictions using the testing set
+        y_pred = regr.predict(np.array(x_list).reshape(-1, 1))
  
-            image_object=Image.fromarray(data_image)
+        image_object=Image.fromarray(data_image)
     
-            rotated=image_object.rotate(math.degrees(math.atan(regr.coef_[0][0])))
+        rotated=image_object.rotate(math.degrees(math.atan(regr.coef_[0][0])))
 
     
-            image_array_unrot= data_image
-        
-            image_array = np.array(rotated)
+        image_array_unrot= data_image
+        image_array = np.array(rotated)
         image_file_rotated_all[n,:,:]=image_array
 
 
@@ -592,6 +692,7 @@ def inference_function_main(latent_dimension,weights_file,optimizer_file,number_
         header.append("BMIN")
         header.append("BPA")
         header.append("SIZE")
+        header.append("CLASS")
 
         header["DATE"]='2020-07-30'
         header["OBJECT"]='None'
@@ -633,6 +734,7 @@ def inference_function_main(latent_dimension,weights_file,optimizer_file,number_
         header["BMIN"]=1.5000E-03
         header["BPA"]=0.00
         header["SIZE"]=52.8
+        header["CLASS"]=source_class
     
         if fits_directory != False:
             hdu = fits.PrimaryHDU(data=image_file_rotated_all[n],header=header)
