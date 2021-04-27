@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
      name='raga',  
-     version='0.1',
+     version='0.7',
      scripts=['ragasim'] ,
      author="David Bastien",
      author_email="joshen0712@gmail.com",

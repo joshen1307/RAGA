@@ -68,14 +68,11 @@ from astropy.io import fits
 today = date.today()
 
 
-def inception_score():
+def inception_score(model_name):
     model = HMT().cuda()
-    model.load_state_dict(torch.load('raga/utils/model.mod'))
+    model.load_state_dict(torch.load(model_name))
     
     return model.eval()
-
-inception_classifier = inception_score()
-
 
 def calculate_inception_score(p_yx, eps=1E-16):
     # calculate p(y)
@@ -304,7 +301,7 @@ def lrsearch(latent_dimensions,training_epoch,log_dir):
 
 
 
-def vaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
+def vaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path,model_inception_name):
 
 
     string_lr = str(LEARNING_RATE).replace(".", "-")
@@ -374,7 +371,7 @@ def vaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
     #svi = SVI(vae.model, vae.guide, optimizer, loss=simple_elbo_kl_annealing)
     #svi.step(annealing_factor=0.2, latents_to_anneal=["my_latent"])
 
-    def inception_scoring(d,limits):
+    def inception_scoring(d,limits,model_inception_name):
         z_fr = torch.randn(100, d)
 
         for i in range (0,100):
@@ -389,7 +386,7 @@ def vaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
              fullsize_image[i,0,25:125,25:125]=sample1[i,0,:,:]
     
         array_generated= torch.from_numpy(fullsize_image).float().to("cpu")
-
+        inception_classifier = inception_score(model_inception_name) #<---------------------------------------------CHECK
         valid_pred = inception_classifier(array_generated.cuda())
         m = nn.Softmax(dim=1)
         values=m(valid_pred).cpu().detach().numpy()
@@ -447,7 +444,7 @@ def vaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
              limits[1,i]= 4
     
     
-        incept_score = inception_scoring(d,limits) #Calls the inception score and calculates it.
+        incept_score = inception_scoring(d,limits,model_inception_name) #Calls the inception score and calculates it. <-----------------------Check this here
     
     
     

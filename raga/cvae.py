@@ -68,13 +68,13 @@ from astropy.io import fits
 today = date.today()
 
 
-def inception_score():
+def inception_score(model_inception_name):
     model = HMT().cuda()
-    model.load_state_dict(torch.load('raga/utils/model.mod'))
+    model.load_state_dict(torch.load(model_inception_name))
     
     return model.eval()
 
-inception_classifier = inception_score()
+#inception_classifier = inception_score(model_inception_name) #<---------------------------------TO MOVE THIS LINE
 
 
 def calculate_inception_score(p_yx, eps=1E-16):
@@ -329,7 +329,7 @@ def lrsearch(latent_dimensions,training_epoch,log_dir):
 #-------------------------------------------Train Function------------------------------------------------
 #---------------------------------------------------------------------------------------------------------
 
-def cvaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
+def cvaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path,model_inception_name):
 
 
     string_lr = str(LEARNING_RATE).replace(".", "-")
@@ -408,7 +408,7 @@ def cvaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
     #svi = SVI(vae.model, vae.guide, optimizer, loss=simple_elbo_kl_annealing)
     #svi.step(annealing_factor=0.2, latents_to_anneal=["my_latent"])
 
-    def inception_scoring(d,limits):
+    def inception_scoring(d,limits,model_inception_name):
     
         #Create the latent sample z to be used to sample the radio sources from the decoder architecture
         z_fr1 = torch.randn(100, d)
@@ -460,7 +460,7 @@ def cvaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
         
     
         array_generated= torch.from_numpy(fullsize_image).float().to("cpu")
-
+        inception_classifier = inception_score(model_inception_name) #<-----------------Check this here
         valid_pred = inception_classifier(array_generated.cuda())
         m = nn.Softmax(dim=1)
         values=m(valid_pred).cpu().detach().numpy()
@@ -534,7 +534,7 @@ def cvaetrain(path,LEARNING_RATE,d,NUM_EPOCHS,log_path):
             limits[1,i]= 4
     
     
-        incept_score,num_fr1,num_fr2,sigma_clipped = inception_scoring(d,limits) #Calls the inception score and calculates it.
+        incept_score,num_fr1,num_fr2,sigma_clipped = inception_scoring(d,limits,model_inception_name) #Calls the inception score and calculates it.
        
     
     #    print("[epoch %03d]  average training loss: %.4f testing loss: %.4f inception score: %.4f" % (epoch, total_epoch_loss_train,total_epoch_loss_test,inception_score))

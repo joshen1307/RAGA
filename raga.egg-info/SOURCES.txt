@@ -21,6 +21,14 @@ raga/utils/classifier_fr_2.py
 raga/utils/data_downloader.py
 raga/utils/frdeep_hmt.py
 raga/utils/ga.py
+raga/utils/model.py
+raga/utils/model_1.py
 raga/utils/models.py
 raga/utils/plots.py
 raga/utils/torchsummary.py
+raga/utils/network_configurations/__init__.py
+raga/utils/network_configurations/neural_net_conf_0_0.py
+raga/utils/network_configurations/neural_net_conf_0_1.py
+raga/utils/network_configurations/neural_net_conf_0_1_dropout.py
+raga/utils/network_configurations/neural_net_conf_0_2.py
+raga/utils/network_configurations/neural_net_conf_0_2_dropout.py
