@@ -1,0 +1,25 @@
+Metadata-Version: 2.1
+Name: raga
+Version: 0.1
+Summary: A Docker and AWS utility package
+Home-page: https://github.com/joshen1307/RAGA
+Author: David Bastien
+Author-email: joshen0712@gmail.com
+License: UNKNOWN
+Description: ### Structured Variational Inference for Simulating Populations of Radio Galaxies - RAGA-1 (Radio Astronomy Generative Algorithm - version 1)
+        
+        The Radio Astronomy Generative Algorithm - version 1 is the first of a series of generative algorithms engineered for simulating radio sources in view of the simulation of future radio surveys like the SKA. 
+        
+        ```bash
+        jupyter notebook VAE_example.ipynb
+        ```
+        It should then open in your web browser.
+        
+        * **VAE_example.ipynb** : a notebook that implements the variational auto-encoder from Kingma & Welling and recreates some of the figures from the paper.
+        * **VAE.py** : this is the network for VAE_example.ipynb
+        hhhh
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Description-Content-Type: text/markdown
